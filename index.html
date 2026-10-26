@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GEMPI 3D</title>
+<style>
+:root{--bg:#07150f;--panel:rgba(8,20,16,.88);--fg:#f3efe2;--acc:#f2c14e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.lb{position:fixed;transform:translate(-50%,-50%);background:var(--panel);border:2px solid transparent;border-radius:10px;padding:3px 9px;font-size:12px;text-align:center;pointer-events:none;white-space:nowrap}
+.lb.on{border-color:var(--acc)}.lb b{display:block;font-size:14px}
+#top{position:fixed;left:0;right:0;top:env(safe-area-inset-top,0px);padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;pointer-events:none}
+#bar{position:fixed;left:0;right:0;bottom:env(safe-area-inset-bottom,0px);padding:10px;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+#msg{background:var(--panel);padding:7px 14px;border-radius:20px;font-size:14px;text-align:center}
+#btns{display:flex;gap:8px;pointer-events:auto}
+button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 16px;background:var(--acc);color:#1b1503;cursor:pointer}
+button.alt{background:#2c4a3c;color:var(--fg)}button.alt.on{background:#b3262d}
+#gp{background:#e8453c;color:#fff}#gp.fl{animation:p .5s infinite alternate}button:disabled{opacity:.4;cursor:default}
+@keyframes p{to{transform:scale(1.12)}}
+#ov{position:fixed;inset:0;background:rgba(3,10,7,.82);display:flex;align-items:center;justify-content:center;padding:16px}
+#box,#lpbox{background:#10261c;border-radius:16px;padding:22px;max-width:520px;width:100%;max-height:90%;overflow:auto;text-align:center}
+#box h1{margin:0 0 6px;letter-spacing:6px;color:var(--acc)}#box p{font-size:13px;line-height:1.5;opacity:.9}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}td,th{padding:5px 4px;border-bottom:1px solid #2c4a3c}
+.mm{display:flex;flex-direction:column;gap:10px;margin:16px auto 0;max-width:260px}.mm button{font-size:16px;padding:12px}
+#lp{position:fixed;inset:0;background:rgba(3,10,7,.82);display:none;align-items:center;justify-content:center;padding:16px;z-index:5}#lpbox{text-align:center}#lpbox p{font-size:13px;opacity:.9;margin:6px 0}
+#toast{position:fixed;top:22%;left:50%;transform:translateX(-50%);background:var(--acc);color:#1b1503;font-weight:700;padding:8px 18px;border-radius:20px;opacity:0;transition:opacity .25s;pointer-events:none}
+</style></head><body>
+<canvas id="c"></canvas><div id="labels"></div>
+<div id="top"><span id="tl"></span><button id="lbb" class="alt" onclick="showLB()" style="pointer-events:auto;padding:5px 10px;font-size:12px">🏆 Leaderboard</button><span id="tr"></span></div>
+<div id="toast"></div>
+<div id="bar"><div id="msg"></div><div id="btns"><button id="bc" class="alt" disabled>Close game: OFF</button><button id="gp" disabled>GEMPI!</button><button class="alt" onclick="menu()">☰ Menu</button></div></div>
+<div id="ov"><div id="box"></div></div>
+<div id="lp"><div id="lpbox" style="max-width:520px;width:100%;max-height:90%;overflow:auto"><div id="lpb"></div><button onclick="$('lp').style.display='none'">Close</button></div></div>
+<script src="three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const SU=['♠','♥','♦','♣'],L=r=>r<11?String(r):['J','Q','K','A'][r-11],val=c=>c.r<=10?c.r:(c.r===14?11:10);
+const R=5.2,DR=3.3;let G=null;
+const _st=window.setTimeout.bind(window);window.setTimeout=(f,ms)=>{const g=G;return _st(()=>{if(G===g)f()},ms)};
+function score(h){const v=h.map(val),n={};h.forEach(c=>n[c.s]=(n[c.s]||0)+1);const k=Object.keys(n).length;
+ if(k===1)return v[0]+v[1]+v[2];
+ if(k===2)return h.reduce((a,c,i)=>a+(n[c.s]===2?v[i]:-v[i]),0);
+ const o=v.slice().sort((a,b)=>b-a);return o[0]-o[1]-o[2];}
+function bestOf(h){let b=null;h.forEach((c,i)=>{const s=score(h.filter((_,j)=>j!==i));if(!b||s>b.s)b={s,card:c}});return b;}
+const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+const cn=c=>L(c.r)+SU[c.s];
+// ---- three.js
+const cv=$('c'),rd=new THREE.WebGLRenderer({canvas:cv,antialias:true});rd.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x07150f);
+const cam=new THREE.PerspectiveCamera(48,1,.1,100);
+function fit(){const w=innerWidth,h=innerHeight;rd.setSize(w,h);cam.aspect=w/h;const k=w/h<1.4?1.4/(w/h):1;cam.position.set(0,11.5*k,10.5*k);cam.lookAt(0,0,1.2);cam.updateProjectionMatrix();}
+addEventListener('resize',fit);
+scene.add(new THREE.HemisphereLight(0xffffff,0x1a3a2a,.85));
+const dl=new THREE.DirectionalLight(0xffffff,.7);dl.position.set(3,10,6);scene.add(dl);
+const table=new THREE.Mesh(new THREE.CylinderGeometry(8.2,8.2,.2,64),new THREE.MeshStandardMaterial({color:0x14683f,roughness:.95}));table.position.y=-.12;scene.add(table);
+const rim=new THREE.Mesh(new THREE.TorusGeometry(8.2,.28,12,80),new THREE.MeshStandardMaterial({color:0x5a3a1e,roughness:.6}));rim.rotation.x=Math.PI/2;rim.position.y=-.02;scene.add(rim);
+function mk(w,h,f){const c=document.createElement('canvas');c.width=w;c.height=h;f(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.anisotropy=4;return t}
+const backTex=mk(140,196,x=>{x.fillStyle='#fbf8ef';x.fillRect(0,0,140,196);x.fillStyle='#233f94';x.fillRect(8,8,124,180);x.strokeStyle='#f2c14e';x.lineWidth=3;x.strokeRect(16,16,108,164);x.fillStyle='#f2c14e';x.font='bold 54px Georgia,serif';x.textAlign='center';x.fillText('G',70,115)});
+const backM=new THREE.MeshStandardMaterial({map:backTex,roughness:.6}),edgeM=new THREE.MeshStandardMaterial({color:0xe9e4d3});
+const geo=new THREE.BoxGeometry(1,.02,1.4),cards=[];
+for(let s=0;s<4;s++)for(let r=2;r<=14;r++){
+ const ft=mk(140,196,x=>{x.fillStyle='#fbf8ef';x.fillRect(0,0,140,196);x.strokeStyle='#bbb';x.lineWidth=2;x.strokeRect(2,2,136,192);x.fillStyle=(s===1||s===2)?'#c0262d':'#16181d';x.textAlign='center';x.font='bold 44px Georgia,serif';x.fillText(L(r),30,50);x.font='34px serif';x.fillText(SU[s],30,88);x.font='84px serif';x.fillText(SU[s],70,142)});
+ const m=new THREE.Mesh(geo,[edgeM,edgeM,new THREE.MeshStandardMaterial({map:ft,roughness:.6}),backM,edgeM,edgeM]);
+ m.rotation.order='YXZ';m.visible=false;scene.add(m);cards.push({r,s,mesh:m,owner:-1});}
+const deckM=new THREE.Mesh(new THREE.BoxGeometry(1,1,1.4),[edgeM,edgeM,backM,edgeM,edgeM,edgeM]);scene.add(deckM);
+const set=(c,x,y,z,rx,ry)=>{c.mesh.userData.t={x,y,z,rx,ry}};
+const pAng=i=>i*2*Math.PI/G.n;
+// ---- layout
+function layout(reveal){
+ G.players.forEach((p,i)=>{const t=pAng(i),n=p.hand.length,sp=i===0?1.2:.8;
+  p.hand.forEach((c,k)=>{const o=(k-(n-1)/2)*sp,hov=(i===0&&c===G.hover)?.5:0;
+   set(c,Math.sin(t)*R+Math.cos(t)*o,.12+hov,Math.cos(t)*R-Math.sin(t)*o,(i===0||reveal)?0:Math.PI,t);});});
+ const h=Math.max(.04,G.deck.length*.012);deckM.scale.y=h;deckM.position.set(0,h/2,0);deckM.visible=G.deck.length>0;
+}
+function show(c){const m=c.mesh;m.visible=true;m.position.set(0,.4,0);m.rotation.set(Math.PI,0,0);}
+function bury(c){G.grave++;set(c,1.5+Math.random()*.15,.03*G.grave,(Math.random()-.5)*.2,0,(Math.random()-.5)*.6);}
+// ---- game flow
+function toast(t){const e=$('toast');e.textContent=t;e.style.opacity=1;clearTimeout(toast.h);toast.h=setTimeout(()=>e.style.opacity=0,1500)}
+function msg(t){$('msg').textContent=t}
+function startGame(n){$('toast').style.opacity=0;G={n,players:[...Array(n)].map((_,i)=>({name:i?'Bot '+i:'You',hand:[],total:0})),round:0,starter:0};
+ $('labels').innerHTML='';G.players.forEach((p,i)=>{const d=document.createElement('div');d.className='lb';d.id='lb'+i;$('labels').appendChild(d)});newRound();}
+function newRound(){G.round++;G.deck=shuffle(cards.slice());G.live=null;G.grave=0;G.busy=true;G.closing=false;G.drewDisc=false;G.takenOwner=-1;G.hover=null;
+ cards.forEach(c=>{c.mesh.visible=false;c.owner=-1});G.players.forEach(p=>p.hand=[]);
+ for(let k=0;k<3;k++)G.players.forEach(p=>{const c=G.deck.pop();p.hand.push(c);show(c)});
+ G.cur=G.starter;G.phase='draw';$('ov').style.display='none';layout();ui();begin();}
+function begin(){const p=G.players[G.cur];G.called=false;G.drewDisc=false;G.takenOwner=-1;ui();
+ if(G.cur===0){G.busy=false;msg('Your turn: tap the deck'+(G.live?' or the open discard':'')+' to draw')}
+ else{G.busy=true;msg(p.name+' is thinking…');setTimeout(botDraw,1000)}}
+function botDraw(){const p=G.players[G.cur],cs=score(p.hand);let d=false;
+ if(G.live){const b=bestOf([...p.hand,G.live]);d=b.s>cs+2||b.s>=28||G.deck.length===0}
+ draw(d?'disc':'deck');
+ setTimeout(()=>{const b=bestOf(p.hand);discard(b.card,b.s>=28||(b.s>=24&&Math.random()<.2))},1000);}
+function draw(from){const p=G.players[G.cur];let c;
+ if(from==='deck'){c=G.deck.pop();if(G.live){bury(G.live);G.live=null}show(c)}
+ else{c=G.live;G.live=null;G.drewDisc=true;G.takenOwner=c.owner}
+ p.hand.push(c);G.phase='discard';layout();ui();
+ if(G.cur===0){G.busy=false;ui();msg('Tap a card to discard it (or toggle Close game to discard face down)')}}
+function discard(c,down){const p=G.players[G.cur];p.hand.splice(p.hand.indexOf(c),1);G.busy=true;G.hover=null;
+ const j=(G.cur+1)%G.n,t=pAng(j);c.owner=G.cur;G.live=c;
+ set(c,Math.sin(t)*DR,.08,Math.cos(t)*DR,down?Math.PI:0,t);
+ G.closing=false;$('bc').classList.remove('on');$('bc').textContent='Close game: OFF';layout();ui();
+ if(down){toast(p.name+' closed the game!');setTimeout(()=>endRound('close'),1100);return}
+ if(G.deck.length===0){toast('Deck is empty');setTimeout(()=>endRound('deck'),1100);return}
+ const s=score(p.hand);
+ if(s>=27){if(G.cur===0){$('gp').classList.add('fl');
+   setTimeout(()=>{$('gp').classList.remove('fl');if(!G.called){p.total-=10;toast('You forgot GEMPI! −10');ui()}next()},2300)}
+  else{toast(p.name+': GEMPI!');setTimeout(next,1400)}}
+ else setTimeout(next,800);}
+function next(){G.cur=(G.cur+1)%G.n;G.phase='draw';begin()}
+function endRound(reason){G.phase='end';G.busy=true;layout(true);
+ const sc=G.players.map(p=>score(p.hand)),bn=G.players.map(()=>0);
+ if(reason==='close'&&G.drewDisc){bn[G.cur]+=50;if(G.takenOwner>=0)bn[G.takenOwner]-=50}
+ const bf=G.players.map(p=>p.total),af=G.players.map((p,i)=>bf[i]+sc[i]+bn[i]);
+ const rs=G.players.map((p,i)=>bf[i]>=150&&G.players.some((q,j)=>j!==i&&bf[j]<bf[i]&&af[j]>af[i]));
+ G.players.forEach((p,i)=>p.total=rs[i]?0:af[i]);
+ const over=G.players.some(p=>p.total>=500);if(over)saveRec();
+ let rows=G.players.map((p,i)=>({p,i})).sort((a,b)=>b.p.total-a.p.total).map(({p,i},r)=>`<tr><td>${r+1}. ${p.name}</td><td>${p.hand.map(cn).join(' ')}</td><td>${sc[i]}${bn[i]?' ('+(bn[i]>0?'+':'')+bn[i]+')':''}</td><td><b>${p.total}</b>${rs[i]?' ↺0':''}</td></tr>`).join('');
+ let head=reason==='close'?G.players[G.cur].name+' closed the game'+(G.drewDisc?' with a discard card: +50 / −50':''):'The deck ran out';
+ let foot;if(over){const w=G.players.slice().sort((a,b)=>b.total-a.total)[0];foot=`<h2>${w.name==='You'?'You win!':w.name+' wins!'}</h2><button onclick="menu()">Play again</button>`}
+ else foot='<button onclick="G.starter=(G.starter+1)%G.n;newRound()">Next round</button>';
+ setTimeout(()=>{$('box').innerHTML=`<h2 style="margin:0">Round ${G.round}</h2><p>${head}</p><table><tr><th></th><th>Hand</th><th>Round</th><th>Total</th></tr>${rows}</table><p>Target 500 · 150+ players reset to 0 when overtaken</p>${foot}`;$('ov').style.display='flex';ui()},1800);}
+function menuOld(){$('box').innerHTML=`<h1>GEMPI</h1><p>Keep three cards of the same suit worth up to 31. Draw from the deck or the open discard, then throw one of your four cards away. Mismatched suits count as minus. Say GEMPI at 27+. Close the game by discarding face down. First to 500 ends it.</p><p>Number of players</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="startGame(4)">4</button><button onclick="startGame(5)">5</button><button onclick="startGame(6)">6</button></div><p><button class='alt' onclick='showLB()'>🏆 Leaderboard</button></p>`;$('ov').style.display='flex'}
+function ui(){const p=G.players[0];let h='';
+ if(p.hand.length===3)h='Hand: '+score(p.hand);else if(p.hand.length===4)h='Best after discard: '+bestOf(p.hand).s;
+ $('tl').textContent='Round '+G.round+' · Deck '+G.deck.length;$('tr').textContent=h;$('bc').disabled=!(G.cur===0&&G.phase==='discard'&&!G.busy);const q=p.hand,qs=q.length===4?bestOf(q).s:score(q);$('gp').disabled=!(G.cur===0&&G.phase!=='end'&&qs>=27&&!G.called);}
+$('gp').onclick=()=>{const h=G.players[0].hand,s=h.length===4?bestOf(h).s:score(h);if(s>=27){G.called=true;toast('GEMPI!');ui()}};
+$('bc').onclick=()=>{G.closing=!G.closing;$('bc').classList.toggle('on',G.closing);$('bc').textContent='Close game: '+(G.closing?'ON':'OFF')};
+// ---- main menu
+function menu(){const live=G&&G.phase&&G.phase!=='end';
+ $('box').innerHTML=`<div style='font-size:30px;letter-spacing:10px;color:#f2c14e'>♠ ♥ ♦ ♣</div><h1 style='font-size:54px;margin:6px 0'>GEMPI</h1><p>The 31-point card game</p><div class='mm'>${live?`<button onclick="$('ov').style.display='none'">▶ Resume</button>`:''}<button onclick='playSetup()'>${live?'New game':'▶ Play'}</button><button class='alt' onclick='showLB()'>🏆 Leaderboard</button><button class='alt' onclick='howTo()'>📖 How to play</button></div>`;$('ov').style.display='flex'}
+function playSetup(){$('box').innerHTML=`<h2 style='margin:0 0 6px'>Number of players</h2><p>You plus bots</p><div style='display:flex;gap:10px;justify-content:center;margin:14px 0'><button onclick='startGame(4)'>4</button><button onclick='startGame(5)'>5</button><button onclick='startGame(6)'>6</button></div><button class='alt' onclick='menu()'>← Back</button>`}
+function howTo(){$('box').innerHTML=`<h2 style='margin:0 0 6px'>How to play</h2><ul style='text-align:left;font-size:13px;line-height:1.6'><li>Each player holds 3 cards. On your turn draw 1 from the deck or the open discard, then discard 1 of your 4 cards.</li><li>Your hand is your best 3 cards: same suit adds up (max 31), an odd-suit card is subtracted, and with no matching suits it is the highest card minus the other two. Number cards = face value, J/Q/K = 10, Ace = 11.</li><li>At 27+ points press GEMPI! or lose 10 points.</li><li>The round ends when the deck runs out or someone discards face down (Close game). Closing with a card taken from the discard pile gives you +50 and the player who discarded it −50.</li><li>Totals accumulate and the first to 500 ends the game. A player with 150+ who is overtaken drops to 0.</li></ul><button class='alt' onclick='menu()'>← Back</button>`}
+// ---- leaderboard
+function recs(){try{return JSON.parse(localStorage.getItem('gempi_recs')||'[]')}catch(e){return[]}}
+function saveRec(){const s=G.players.map(p=>({n:p.name,t:p.total})).sort((a,b)=>b.t-a.t);const rec={me:G.players[0].total,rank:s.findIndex(x=>x.n==='You')+1,n:G.n,d:Date.now()};try{const a=recs();a.unshift(rec);localStorage.setItem('gempi_recs',JSON.stringify(a.slice(0,30)))}catch(e){}}
+function showLB(){let h='<h2 style="margin:0 0 6px">🏆 Leaderboard</h2>';
+ if(G&&G.players){const s=G.players.slice().sort((a,b)=>b.total-a.total);
+  h+='<p>Live standings · Round '+G.round+' · target 500</p><table><tr><th>#</th><th>Player</th><th>Points</th><th></th></tr>'+s.map((p,r)=>'<tr><td>'+(r+1)+'</td><td>'+p.name+'</td><td><b>'+p.total+'</b></td><td><div style="height:6px;background:#2c4a3c;border-radius:3px;min-width:70px"><div style="height:6px;border-radius:3px;background:'+(p.total>=150?'#e8453c':'#f2c14e')+';width:'+Math.max(0,Math.min(100,p.total/5))+'%"></div></div></td></tr>').join('')+'</table><p>Red bar = 150+ points, reset to 0 if overtaken</p>';}
+ const a=recs(),w=a.filter(x=>x.rank===1).length;
+ h+='<h3 style="margin:12px 0 0">Your history</h3>';
+ h+=a.length?'<p>Games '+a.length+' · Wins '+w+' · Best score '+Math.max(...a.map(x=>x.me))+'</p><table><tr><th>Date</th><th>Players</th><th>Your score</th><th>Rank</th></tr>'+a.slice(0,5).map(x=>'<tr><td>'+new Date(x.d).toLocaleDateString()+'</td><td>'+x.n+'</td><td>'+x.me+'</td><td>'+x.rank+'</td></tr>').join('')+'</table>':'<p>No finished games yet.</p>';
+ $('lpb').innerHTML=h;$('lp').style.display='flex';}
+// ---- input
+const ray=new THREE.Raycaster(),mp=new THREE.Vector2();
+function pick(e){mp.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);ray.setFromCamera(mp,cam);
+ const o=[deckM];if(G.live)o.push(G.live.mesh);G.players[0].hand.forEach(c=>o.push(c.mesh));
+ const h=ray.intersectObjects(o)[0];if(!h)return null;return h.object===deckM?'deck':(cards.find(c=>c.mesh===h.object))}
+cv.addEventListener('pointermove',e=>{if(!G||G.busy||G.cur!==0||G.phase!=='discard')return;const k=pick(e),c=(k&&k!=='deck'&&G.players[0].hand.includes(k))?k:null;if(c!==G.hover){G.hover=c;layout()}});
+cv.addEventListener('pointerdown',e=>{if(!G||G.busy||G.cur!==0)return;const k=pick(e);if(!k)return;
+ if(G.phase==='draw'){if(k==='deck'&&G.deck.length)draw('deck');else if(k!=='deck'&&k===G.live)draw('disc')}
+ else if(G.phase==='discard'&&k!=='deck'&&G.players[0].hand.includes(k))discard(k,G.closing)});
+// ---- loop
+const v=new THREE.Vector3();
+function loop(){requestAnimationFrame(loop);
+ cards.forEach(c=>{const m=c.mesh,t=m.userData.t;if(!m.visible||!t)return;const f=.16;
+  m.position.x+=(t.x-m.position.x)*f;m.position.y+=(t.y-m.position.y)*f;m.position.z+=(t.z-m.position.z)*f;
+  m.rotation.x+=(t.rx-m.rotation.x)*f;m.rotation.y+=(t.ry-m.rotation.y)*f;});
+ if(G&&G.players)G.players.forEach((p,i)=>{const e=$('lb'+i);if(!e)return;const t=pAng(i);v.set(Math.sin(t)*(R+1.9),0,Math.cos(t)*(R+1.9)).project(cam);
+  e.style.left=(v.x+1)/2*innerWidth+'px';e.style.top=(1-v.y)/2*innerHeight+'px';e.className='lb'+(G.cur===i&&G.phase!=='end'?' on':'');e.innerHTML=`<b>${p.name}</b>${p.total} pts`;});
+ rd.render(scene,cam);}
+fit();menu();loop();
+</script></body></html>
